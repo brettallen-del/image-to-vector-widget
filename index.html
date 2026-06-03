@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Image to Vector Converter</title>
+<style>
+  :root {
+    --vz-accent: #4f46e5;
+    --vz-accent-hover: #4338ca;
+    --vz-border: #e2e8f0;
+    --vz-bg: #ffffff;
+    --vz-muted: #64748b;
+    --vz-text: #0f172a;
+    --vz-radius: 12px;
+  }
+
+  * { box-sizing: border-box; }
+
+  .vz-widget {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--vz-text);
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 24px;
+    background: var(--vz-bg);
+  }
+
+  .vz-widget h1 {
+    font-size: 20px;
+    margin: 0 0 4px;
+  }
+  .vz-widget .vz-sub {
+    color: var(--vz-muted);
+    font-size: 14px;
+    margin: 0 0 20px;
+  }
+
+  /* Drop zone */
+  .vz-drop {
+    border: 2px dashed var(--vz-border);
+    border-radius: var(--vz-radius);
+    padding: 36px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: #f8fafc;
+  }
+  .vz-drop:hover, .vz-drop.vz-dragover {
+    border-color: var(--vz-accent);
+    background: #eef2ff;
+  }
+  .vz-drop .vz-icon {
+    font-size: 40px;
+    line-height: 1;
+    margin-bottom: 10px;
+  }
+  .vz-drop .vz-drop-main { font-weight: 600; margin-bottom: 4px; }
+  .vz-drop .vz-drop-hint { color: var(--vz-muted); font-size: 13px; }
+  .vz-drop input[type=file] { display: none; }
+
+  /* Controls row */
+  .vz-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin: 18px 0;
+  }
+  .vz-btn {
+    appearance: none;
+    border: none;
+    background: var(--vz-accent);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background .15s, opacity .15s;
+  }
+  .vz-btn:hover:not(:disabled) { background: var(--vz-accent-hover); }
+  .vz-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .vz-btn.vz-secondary {
+    background: #fff;
+    color: var(--vz-text);
+    border: 1px solid var(--vz-border);
+  }
+  .vz-btn.vz-secondary:hover:not(:disabled) { background: #f1f5f9; }
+
+  .vz-detail {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--vz-muted);
+    margin-left: auto;
+  }
+  .vz-detail select {
+    font-size: 13px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--vz-border);
+    background: #fff;
+    color: var(--vz-text);
+  }
+
+  /* Preview panes */
+  .vz-panes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 8px;
+  }
+  @media (max-width: 560px) {
+    .vz-panes { grid-template-columns: 1fr; }
+  }
+  .vz-pane {
+    border: 1px solid var(--vz-border);
+    border-radius: var(--vz-radius);
+    overflow: hidden;
+    background:
+      linear-gradient(45deg, #f1f5f9 25%, transparent 25%) -8px 0,
+      linear-gradient(-45deg, #f1f5f9 25%, transparent 25%) -8px 0,
+      linear-gradient(45deg, transparent 75%, #f1f5f9 75%),
+      linear-gradient(-45deg, transparent 75%, #f1f5f9 75%);
+    background-size: 16px 16px;
+    background-color: #fff;
+  }
+  .vz-pane-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--vz-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    padding: 8px 12px;
+    background: #fff;
+    border-bottom: 1px solid var(--vz-border);
+  }
+  .vz-pane-body {
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+  }
+  .vz-pane-body img, .vz-pane-body svg {
+    max-width: 100%;
+    max-height: 280px;
+    height: auto;
+    display: block;
+  }
+
+  .vz-status {
+    font-size: 13px;
+    color: var(--vz-muted);
+    margin-top: 14px;
+    min-height: 18px;
+  }
+  .vz-status.vz-error { color: #dc2626; }
+
+  .vz-spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--vz-border);
+    border-top-color: var(--vz-accent);
+    border-radius: 50%;
+    animation: vz-spin .7s linear infinite;
+    vertical-align: -2px;
+    margin-right: 6px;
+  }
+  @keyframes vz-spin { to { transform: rotate(360deg); } }
+
+  .vz-hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="vz-widget" id="vzWidget">
+  <h1>Image → Vector Converter</h1>
+  <p class="vz-sub">Upload a JPG, PNG, or SVG and convert it into a scalable vector (SVG).</p>
+
+  <label class="vz-drop" id="vzDrop">
+    <div class="vz-icon">🖼️</div>
+    <div class="vz-drop-main">Click to upload or drag an image here</div>
+    <div class="vz-drop-hint">JPG, PNG, or SVG · up to ~10MB</div>
+    <input type="file" id="vzFile" accept="image/png,image/jpeg,image/svg+xml" />
+  </label>
+
+  <div class="vz-controls">
+    <button class="vz-btn" id="vzConvert" disabled>Convert to Vector</button>
+    <button class="vz-btn vz-secondary vz-hidden" id="vzDownload">Download SVG</button>
+    <button class="vz-btn vz-secondary vz-hidden" id="vzReset">Start over</button>
+    <div class="vz-detail">
+      Detail:
+      <select id="vzDetail">
+        <option value="low">Low (smaller file)</option>
+        <option value="medium" selected>Medium</option>
+        <option value="high">High (more detail)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="vz-panes vz-hidden" id="vzPanes">
+    <div class="vz-pane">
+      <div class="vz-pane-label">Original</div>
+      <div class="vz-pane-body" id="vzOriginal"></div>
+    </div>
+    <div class="vz-pane">
+      <div class="vz-pane-label">Vector (SVG)</div>
+      <div class="vz-pane-body" id="vzResult"></div>
+    </div>
+  </div>
+
+  <div class="vz-status" id="vzStatus"></div>
+</div>
+
+<!-- ImageTracer.js: open-source raster -> SVG tracing, runs in the browser -->
+<script src="https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js"></script>
+<script>
+(function () {
+  var fileInput = document.getElementById('vzFile');
+  var drop      = document.getElementById('vzDrop');
+  var convertBtn= document.getElementById('vzConvert');
+  var downloadBtn = document.getElementById('vzDownload');
+  var resetBtn  = document.getElementById('vzReset');
+  var detailSel = document.getElementById('vzDetail');
+  var panes     = document.getElementById('vzPanes');
+  var originalEl= document.getElementById('vzOriginal');
+  var resultEl  = document.getElementById('vzResult');
+  var statusEl  = document.getElementById('vzStatus');
+
+  var currentFile = null;
+  var currentDataUrl = null;   // data URL of the uploaded image
+  var currentIsSvg = false;
+  var outputSvg = null;        // the resulting SVG string
+  var outputName = 'vector.svg';
+
+  // ImageTracer option presets keyed to the "detail" selector.
+  var PRESETS = {
+    low:    { numberofcolors: 8,  pathomit: 12, ltres: 1.5, qtres: 1.5, blurradius: 1 },
+    medium: { numberofcolors: 16, pathomit: 8,  ltres: 1,   qtres: 1,   blurradius: 0 },
+    high:   { numberofcolors: 32, pathomit: 4,  ltres: 0.5, qtres: 0.5, blurradius: 0 }
+  };
+
+  // Don't trace enormous images directly — downscale first for speed.
+  var MAX_DIM = 800;
+
+  function setStatus(msg, isError, busy) {
+    statusEl.className = 'vz-status' + (isError ? ' vz-error' : '');
+    statusEl.innerHTML = (busy ? '<span class="vz-spinner"></span>' : '') + (msg || '');
+  }
+
+  function resetAll() {
+    currentFile = null; currentDataUrl = null; currentIsSvg = false; outputSvg = null;
+    fileInput.value = '';
+    originalEl.innerHTML = '';
+    resultEl.innerHTML = '';
+    panes.classList.add('vz-hidden');
+    convertBtn.disabled = true;
+    downloadBtn.classList.add('vz-hidden');
+    resetBtn.classList.add('vz-hidden');
+    setStatus('');
+  }
+
+  function handleFile(file) {
+    if (!file) return;
+    var okTypes = ['image/png', 'image/jpeg', 'image/svg+xml'];
+    if (okTypes.indexOf(file.type) === -1) {
+      setStatus('Unsupported file type. Please upload a JPG, PNG, or SVG.', true);
+      return;
+    }
+    currentFile = file;
+    currentIsSvg = (file.type === 'image/svg+xml');
+    outputName = file.name.replace(/\.[^.]+$/, '') + '.svg';
+
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      currentDataUrl = e.target.result;
+      // Show original preview
+      originalEl.innerHTML = '';
+      var img = document.createElement('img');
+      img.src = currentDataUrl;
+      originalEl.appendChild(img);
+      panes.classList.remove('vz-hidden');
+      resultEl.innerHTML = '';
+      outputSvg = null;
+      downloadBtn.classList.add('vz-hidden');
+      resetBtn.classList.remove('vz-hidden');
+      convertBtn.disabled = false;
+      if (currentIsSvg) {
+        setStatus('This is already an SVG (a vector). Click "Convert to Vector" to clean it up and download.');
+      } else {
+        setStatus('Ready. Click "Convert to Vector".');
+      }
+    };
+    reader.onerror = function () { setStatus('Could not read that file.', true); };
+
+    if (currentIsSvg) reader.readAsText(file);
+    else reader.readAsDataURL(file);
+  }
+
+  // For SVG uploads we just pass the source through (already a vector).
+  function convertSvgPassThrough() {
+    outputSvg = currentDataUrl; // for SVG, reader read it as text
+    showResult(outputSvg);
+    setStatus('Done — this file was already a vector. Ready to download.');
+  }
+
+  // Load image into a (possibly downscaled) canvas, then trace to SVG.
+  function convertRaster() {
+    setStatus('Converting… this can take a few seconds for detailed images.', false, true);
+
+    var img = new Image();
+    img.onload = function () {
+      var w = img.naturalWidth, h = img.naturalHeight;
+      var scale = Math.min(1, MAX_DIM / Math.max(w, h));
+      var cw = Math.max(1, Math.round(w * scale));
+      var ch = Math.max(1, Math.round(h * scale));
+
+      var canvas = document.createElement('canvas');
+      canvas.width = cw; canvas.height = ch;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, cw, ch);
+
+      var imgd;
+      try {
+        imgd = ctx.getImageData(0, 0, cw, ch);
+      } catch (err) {
+        setStatus('Could not read image pixels (browser security). Try a different image.', true);
+        return;
+      }
+
+      var opts = PRESETS[detailSel.value] || PRESETS.medium;
+
+      // Defer to next frame so the spinner can paint.
+      setTimeout(function () {
+        try {
+          outputSvg = ImageTracer.imagedataToSVG(imgd, opts);
+          showResult(outputSvg);
+          var kb = Math.round(outputSvg.length / 1024);
+          setStatus('Done — vector created (~' + kb + ' KB). Ready to download.');
+        } catch (err) {
+          setStatus('Conversion failed: ' + err.message, true);
+        }
+      }, 30);
+    };
+    img.onerror = function () { setStatus('Could not load that image.', true); };
+    img.src = currentDataUrl;
+  }
+
+  function showResult(svgString) {
+    resultEl.innerHTML = svgString;
+    var svgEl = resultEl.querySelector('svg');
+    if (svgEl) {
+      svgEl.removeAttribute('width');
+      svgEl.removeAttribute('height');
+      svgEl.style.maxHeight = '280px';
+    }
+    downloadBtn.classList.remove('vz-hidden');
+  }
+
+  function download() {
+    if (!outputSvg) return;
+    var blob = new Blob([outputSvg], { type: 'image/svg+xml' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = outputName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  // ---- Events ----
+  fileInput.addEventListener('change', function (e) {
+    if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+  });
+
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('vz-dragover'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('vz-dragover'); });
+  });
+  drop.addEventListener('drop', function (e) {
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+
+  convertBtn.addEventListener('click', function () {
+    if (!currentFile) return;
+    if (currentIsSvg) convertSvgPassThrough();
+    else convertRaster();
+  });
+
+  downloadBtn.addEventListener('click', download);
+  resetBtn.addEventListener('click', resetAll);
+
+  if (typeof ImageTracer === 'undefined') {
+    setStatus('Could not load the conversion library (check your internet connection).', true);
+  }
+})();
+</script>
+</body>
+</html>
