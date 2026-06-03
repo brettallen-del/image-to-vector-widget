@@ -36,14 +36,14 @@ widget to appear:
 
 ```html
 <iframe
-  src="https://YOUR-HOSTED-URL/index.html"
+  src="https://brettallen-del.github.io/image-to-vector-widget/index.html"
   style="width:100%; height:720px; border:1px solid #e2e8f0; border-radius:12px;"
   title="Image to Vector Converter"
   loading="lazy">
 </iframe>
 ```
 
-Replace `https://YOUR-HOSTED-URL/` with wherever the files end up living.
+**Live URL:** https://brettallen-del.github.io/image-to-vector-widget/
 
 ## Hosting (free options)
 
