@@ -26,15 +26,8 @@
     background: var(--vz-bg);
   }
 
-  .vz-widget h1 {
-    font-size: 20px;
-    margin: 0 0 4px;
-  }
-  .vz-widget .vz-sub {
-    color: var(--vz-muted);
-    font-size: 14px;
-    margin: 0 0 20px;
-  }
+  .vz-widget h1 { font-size: 20px; margin: 0 0 4px; }
+  .vz-widget .vz-sub { color: var(--vz-muted); font-size: 14px; margin: 0 0 20px; }
 
   /* Drop zone */
   .vz-drop {
@@ -47,15 +40,8 @@
     transition: border-color .15s, background .15s;
     background: #f8fafc;
   }
-  .vz-drop:hover, .vz-drop.vz-dragover {
-    border-color: var(--vz-accent);
-    background: #eef2ff;
-  }
-  .vz-drop .vz-icon {
-    font-size: 40px;
-    line-height: 1;
-    margin-bottom: 10px;
-  }
+  .vz-drop:hover, .vz-drop.vz-dragover { border-color: var(--vz-accent); background: #eef2ff; }
+  .vz-drop .vz-icon { font-size: 40px; line-height: 1; margin-bottom: 10px; }
   .vz-drop .vz-drop-main { font-weight: 600; margin-bottom: 4px; }
   .vz-drop .vz-drop-hint { color: var(--vz-muted); font-size: 13px; }
   .vz-drop input[type=file] { display: none; }
@@ -89,15 +75,17 @@
   }
   .vz-btn.vz-secondary:hover:not(:disabled) { background: #f1f5f9; }
 
-  .vz-detail {
+  .vz-selects {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 16px;
     font-size: 13px;
     color: var(--vz-muted);
     margin-left: auto;
+    flex-wrap: wrap;
   }
-  .vz-detail select {
+  .vz-selects label { display: flex; align-items: center; gap: 6px; }
+  .vz-selects select {
     font-size: 13px;
     padding: 6px 8px;
     border-radius: 6px;
@@ -113,9 +101,7 @@
     gap: 16px;
     margin-top: 8px;
   }
-  @media (max-width: 560px) {
-    .vz-panes { grid-template-columns: 1fr; }
-  }
+  @media (max-width: 560px) { .vz-panes { grid-template-columns: 1fr; } }
   .vz-pane {
     border: 1px solid var(--vz-border);
     border-radius: var(--vz-radius);
@@ -152,12 +138,7 @@
     display: block;
   }
 
-  .vz-status {
-    font-size: 13px;
-    color: var(--vz-muted);
-    margin-top: 14px;
-    min-height: 18px;
-  }
+  .vz-status { font-size: 13px; color: var(--vz-muted); margin-top: 14px; min-height: 18px; }
   .vz-status.vz-error { color: #dc2626; }
 
   .vz-spinner {
@@ -171,11 +152,16 @@
     margin-right: 6px;
   }
   @keyframes vz-spin { to { transform: rotate(360deg); } }
-
   .vz-hidden { display: none !important; }
 </style>
 </head>
 <body>
+
+<!-- Hidden canvas + svg that VTracer reads/writes directly via DOM element IDs -->
+<canvas id="vzTraceCanvas" style="visibility:hidden;position:absolute;top:-9999px"></canvas>
+<svg id="vzTraceSvg" xmlns="http://www.w3.org/2000/svg"
+     style="visibility:hidden;position:absolute;top:-9999px;width:0;height:0"></svg>
+
 <div class="vz-widget" id="vzWidget">
   <h1>Image → Vector Converter</h1>
   <p class="vz-sub">Upload a JPG, PNG, or SVG and convert it into a scalable vector (SVG).</p>
@@ -191,13 +177,22 @@
     <button class="vz-btn" id="vzConvert" disabled>Convert to Vector</button>
     <button class="vz-btn vz-secondary vz-hidden" id="vzDownload">Download SVG</button>
     <button class="vz-btn vz-secondary vz-hidden" id="vzReset">Start over</button>
-    <div class="vz-detail">
-      Detail:
-      <select id="vzDetail">
-        <option value="low">Low (smaller file)</option>
-        <option value="medium" selected>Medium</option>
-        <option value="high">High (more detail)</option>
-      </select>
+    <div class="vz-selects">
+      <label>
+        Mode:
+        <select id="vzMode">
+          <option value="color" selected>Color</option>
+          <option value="lineart">Line art / Sketch</option>
+        </select>
+      </label>
+      <label>
+        Detail:
+        <select id="vzDetail">
+          <option value="low">Low (faster)</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High (slower)</option>
+        </select>
+      </label>
     </div>
   </div>
 
@@ -215,43 +210,83 @@
   <div class="vz-status" id="vzStatus"></div>
 </div>
 
-<!-- ImageTracer.js: open-source raster -> SVG tracing, runs in the browser -->
+<!-- ImageTracer: fallback for browsers where VTracer WASM fails -->
 <script src="https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js"></script>
 <script>
 (function () {
-  var fileInput = document.getElementById('vzFile');
-  var drop      = document.getElementById('vzDrop');
-  var convertBtn= document.getElementById('vzConvert');
-  var downloadBtn = document.getElementById('vzDownload');
-  var resetBtn  = document.getElementById('vzReset');
-  var detailSel = document.getElementById('vzDetail');
-  var panes     = document.getElementById('vzPanes');
-  var originalEl= document.getElementById('vzOriginal');
-  var resultEl  = document.getElementById('vzResult');
-  var statusEl  = document.getElementById('vzStatus');
+  // --- DOM refs ---
+  var fileInput  = document.getElementById('vzFile');
+  var drop       = document.getElementById('vzDrop');
+  var convertBtn = document.getElementById('vzConvert');
+  var downloadBtn= document.getElementById('vzDownload');
+  var resetBtn   = document.getElementById('vzReset');
+  var modeSel    = document.getElementById('vzMode');
+  var detailSel  = document.getElementById('vzDetail');
+  var panes      = document.getElementById('vzPanes');
+  var originalEl = document.getElementById('vzOriginal');
+  var resultEl   = document.getElementById('vzResult');
+  var statusEl   = document.getElementById('vzStatus');
+  var traceCanvas= document.getElementById('vzTraceCanvas');
+  var traceSvgEl = document.getElementById('vzTraceSvg');
 
-  var currentFile = null;
-  var currentDataUrl = null;   // data URL of the uploaded image
-  var currentIsSvg = false;
-  var outputSvg = null;        // the resulting SVG string
-  var outputName = 'vector.svg';
+  // --- State ---
+  var currentFile = null, currentDataUrl = null, currentIsSvg = false;
+  var outputSvg = null, outputName = 'vector.svg';
+  var vtracerBg = null, vtracerReady = false;
+  var convRunning = false;
 
-  // ImageTracer option presets keyed to the "detail" selector.
-  var PRESETS = {
-    low:    { numberofcolors: 8,  pathomit: 12, ltres: 1.5, qtres: 1.5, blurradius: 1 },
-    medium: { numberofcolors: 16, pathomit: 8,  ltres: 1,   qtres: 1,   blurradius: 0 },
-    high:   { numberofcolors: 32, pathomit: 4,  ltres: 0.5, qtres: 0.5, blurradius: 0 }
+  // --- VTracer CDN bootstrap ---
+  // vtracer-webapp uses a wasm-bindgen "bundler" target.
+  // We manually instantiate the WASM and wire it to the bg.js exports.
+  var VTRACER_BG  = 'https://cdn.jsdelivr.net/npm/vtracer-webapp@0.4.0/vtracer_webapp_bg.js';
+  var VTRACER_WASM= 'https://cdn.jsdelivr.net/npm/vtracer-webapp@0.4.0/vtracer_webapp_bg.wasm';
+
+  async function initVTracer() {
+    try {
+      var bg = await import(VTRACER_BG);
+      var resp = await fetch(VTRACER_WASM);
+      var result = await WebAssembly.instantiateStreaming(resp, { './vtracer_webapp_bg.js': bg });
+      bg.__wbg_set_wasm(result.instance.exports);
+      result.instance.exports.__wbindgen_start();
+      vtracerBg = bg;
+      vtracerReady = true;
+    } catch (e) {
+      console.warn('VTracer WASM load failed, ImageTracer fallback active:', e);
+    }
+  }
+  initVTracer();
+
+  // --- VTracer presets (color mode, corner_threshold in radians) ---
+  var VT_COLOR = {
+    low:    { color_precision: 6, filter_speckle: 16, layer_difference: 32, corner_threshold: 1.047, length_threshold: 4.0, splice_threshold: 0.785, mode: 'spline', max_iterations: 10, path_precision: 3 },
+    medium: { color_precision: 7, filter_speckle:  8, layer_difference: 20, corner_threshold: 1.047, length_threshold: 3.5, splice_threshold: 0.785, mode: 'spline', max_iterations: 10, path_precision: 3 },
+    high:   { color_precision: 8, filter_speckle:  4, layer_difference: 12, corner_threshold: 1.047, length_threshold: 2.0, splice_threshold: 0.785, mode: 'spline', max_iterations: 10, path_precision: 3 }
+  };
+  var VT_LINEART = {
+    low:    { color_precision: 6, filter_speckle: 16, layer_difference: 32, corner_threshold: 1.047, length_threshold: 4.0, splice_threshold: 0.785, mode: 'spline', max_iterations: 10, path_precision: 3 },
+    medium: { color_precision: 6, filter_speckle:  8, layer_difference: 20, corner_threshold: 0.785, length_threshold: 3.0, splice_threshold: 0.524, mode: 'spline', max_iterations: 10, path_precision: 3 },
+    high:   { color_precision: 6, filter_speckle:  2, layer_difference: 10, corner_threshold: 0.524, length_threshold: 1.5, splice_threshold: 0.349, mode: 'spline', max_iterations: 10, path_precision: 3 }
   };
 
-  // Don't trace enormous images directly — downscale first for speed.
-  var MAX_DIM = 800;
+  // --- ImageTracer fallback presets ---
+  var IT_PRESETS = {
+    low:    { numberofcolors:  8, pathomit: 12, ltres: 1.5, qtres: 1.5, blurradius: 1 },
+    medium: { numberofcolors: 16, pathomit:  8, ltres: 1.0, qtres: 1.0, blurradius: 0 },
+    high:   { numberofcolors: 32, pathomit:  4, ltres: 0.5, qtres: 0.5, blurradius: 0 }
+  };
 
+  // Max canvas dimension: VTracer handles larger images well; fallback needs to be smaller
+  var MAX_VT = 1600;
+  var MAX_IT = 1200;
+
+  // --- Helpers ---
   function setStatus(msg, isError, busy) {
     statusEl.className = 'vz-status' + (isError ? ' vz-error' : '');
     statusEl.innerHTML = (busy ? '<span class="vz-spinner"></span>' : '') + (msg || '');
   }
 
   function resetAll() {
+    convRunning = false;
     currentFile = null; currentDataUrl = null; currentIsSvg = false; outputSvg = null;
     fileInput.value = '';
     originalEl.innerHTML = '';
@@ -260,93 +295,12 @@
     convertBtn.disabled = true;
     downloadBtn.classList.add('vz-hidden');
     resetBtn.classList.add('vz-hidden');
+    clearTraceSvg();
     setStatus('');
   }
 
-  function handleFile(file) {
-    if (!file) return;
-    var okTypes = ['image/png', 'image/jpeg', 'image/svg+xml'];
-    if (okTypes.indexOf(file.type) === -1) {
-      setStatus('Unsupported file type. Please upload a JPG, PNG, or SVG.', true);
-      return;
-    }
-    currentFile = file;
-    currentIsSvg = (file.type === 'image/svg+xml');
-    outputName = file.name.replace(/\.[^.]+$/, '') + '.svg';
-
-    var reader = new FileReader();
-    reader.onload = function (e) {
-      currentDataUrl = e.target.result;
-      // Show original preview
-      originalEl.innerHTML = '';
-      var img = document.createElement('img');
-      img.src = currentDataUrl;
-      originalEl.appendChild(img);
-      panes.classList.remove('vz-hidden');
-      resultEl.innerHTML = '';
-      outputSvg = null;
-      downloadBtn.classList.add('vz-hidden');
-      resetBtn.classList.remove('vz-hidden');
-      convertBtn.disabled = false;
-      if (currentIsSvg) {
-        setStatus('This is already an SVG (a vector). Click "Convert to Vector" to clean it up and download.');
-      } else {
-        setStatus('Ready. Click "Convert to Vector".');
-      }
-    };
-    reader.onerror = function () { setStatus('Could not read that file.', true); };
-
-    if (currentIsSvg) reader.readAsText(file);
-    else reader.readAsDataURL(file);
-  }
-
-  // For SVG uploads we just pass the source through (already a vector).
-  function convertSvgPassThrough() {
-    outputSvg = currentDataUrl; // for SVG, reader read it as text
-    showResult(outputSvg);
-    setStatus('Done — this file was already a vector. Ready to download.');
-  }
-
-  // Load image into a (possibly downscaled) canvas, then trace to SVG.
-  function convertRaster() {
-    setStatus('Converting… this can take a few seconds for detailed images.', false, true);
-
-    var img = new Image();
-    img.onload = function () {
-      var w = img.naturalWidth, h = img.naturalHeight;
-      var scale = Math.min(1, MAX_DIM / Math.max(w, h));
-      var cw = Math.max(1, Math.round(w * scale));
-      var ch = Math.max(1, Math.round(h * scale));
-
-      var canvas = document.createElement('canvas');
-      canvas.width = cw; canvas.height = ch;
-      var ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, cw, ch);
-
-      var imgd;
-      try {
-        imgd = ctx.getImageData(0, 0, cw, ch);
-      } catch (err) {
-        setStatus('Could not read image pixels (browser security). Try a different image.', true);
-        return;
-      }
-
-      var opts = PRESETS[detailSel.value] || PRESETS.medium;
-
-      // Defer to next frame so the spinner can paint.
-      setTimeout(function () {
-        try {
-          outputSvg = ImageTracer.imagedataToSVG(imgd, opts);
-          showResult(outputSvg);
-          var kb = Math.round(outputSvg.length / 1024);
-          setStatus('Done — vector created (~' + kb + ' KB). Ready to download.');
-        } catch (err) {
-          setStatus('Conversion failed: ' + err.message, true);
-        }
-      }, 30);
-    };
-    img.onerror = function () { setStatus('Could not load that image.', true); };
-    img.src = currentDataUrl;
+  function clearTraceSvg() {
+    while (traceSvgEl.firstChild) traceSvgEl.removeChild(traceSvgEl.firstChild);
   }
 
   function showResult(svgString) {
@@ -370,11 +324,162 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
-  // ---- Events ----
+  // --- File handling ---
+  function handleFile(file) {
+    if (!file) return;
+    var okTypes = ['image/png', 'image/jpeg', 'image/svg+xml'];
+    if (okTypes.indexOf(file.type) === -1) {
+      setStatus('Unsupported file type. Please upload a JPG, PNG, or SVG.', true);
+      return;
+    }
+    currentFile = file;
+    currentIsSvg = (file.type === 'image/svg+xml');
+    outputName = file.name.replace(/\.[^.]+$/, '') + '.svg';
+
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      currentDataUrl = e.target.result;
+      originalEl.innerHTML = '';
+      var img = document.createElement('img');
+      img.src = currentDataUrl;
+      originalEl.appendChild(img);
+      panes.classList.remove('vz-hidden');
+      resultEl.innerHTML = '';
+      outputSvg = null;
+      downloadBtn.classList.add('vz-hidden');
+      resetBtn.classList.remove('vz-hidden');
+      convertBtn.disabled = false;
+      setStatus(currentIsSvg ? 'SVG detected — already a vector. Click Convert to download.' : 'Ready. Click "Convert to Vector".');
+    };
+    reader.onerror = function () { setStatus('Could not read that file.', true); };
+    if (currentIsSvg) reader.readAsText(file);
+    else reader.readAsDataURL(file);
+  }
+
+  // --- Conversion dispatcher ---
+  function runConvert() {
+    if (!currentFile || convRunning) return;
+    if (currentIsSvg) { outputSvg = currentDataUrl; showResult(outputSvg); setStatus('Done — already a vector.'); return; }
+    if (vtracerReady) convertVTracer();
+    else convertImageTracer();
+  }
+
+  // --- VTracer path ---
+  function convertVTracer() {
+    convRunning = true;
+    setStatus('Loading image…', false, true);
+
+    var img = new Image();
+    img.onload = function () {
+      var w = img.naturalWidth, h = img.naturalHeight;
+      var scale = Math.min(1, MAX_VT / Math.max(w, h));
+      var cw = Math.max(1, Math.round(w * scale));
+      var ch = Math.max(1, Math.round(h * scale));
+
+      traceCanvas.width = cw;
+      traceCanvas.height = ch;
+      traceCanvas.getContext('2d').drawImage(img, 0, 0, cw, ch);
+
+      traceSvgEl.setAttribute('viewBox', '0 0 ' + cw + ' ' + ch);
+      clearTraceSvg();
+
+      var detail = detailSel.value;
+      var isLineart = (modeSel.value === 'lineart');
+      var baseParams = isLineart ? VT_LINEART[detail] : VT_COLOR[detail];
+      var params = Object.assign({}, baseParams, {
+        canvas_id: 'vzTraceCanvas',
+        svg_id: 'vzTraceSvg',
+        clustering_mode: isLineart ? 'binary' : 'color',
+        hierarchical: 'stacked'
+      });
+
+      var converter;
+      try {
+        var Cls = isLineart ? vtracerBg.BinaryImageConverter : vtracerBg.ColorImageConverter;
+        converter = Cls.new_with_string(JSON.stringify(params));
+        converter.init();
+      } catch (e) {
+        convRunning = false;
+        setStatus('VTracer init error — falling back: ' + e.message, false, true);
+        setTimeout(convertImageTracer, 50);
+        return;
+      }
+
+      setStatus('Converting with VTracer… 0%', false, true);
+
+      function tick() {
+        if (!convRunning) { converter.free(); return; }
+        var done = false, deadline = performance.now() + 16;
+        try {
+          while (!done && performance.now() < deadline) done = converter.tick();
+        } catch (e) {
+          convRunning = false;
+          converter.free();
+          setStatus('Conversion error: ' + e.message, true);
+          return;
+        }
+        if (done) {
+          converter.free();
+          finishVTracer(cw, ch);
+        } else {
+          setStatus('Converting with VTracer… ' + Math.round(converter.progress()) + '%', false, true);
+          requestAnimationFrame(tick);
+        }
+      }
+      requestAnimationFrame(tick);
+    };
+    img.onerror = function () { convRunning = false; setStatus('Could not load that image.', true); };
+    img.src = currentDataUrl;
+  }
+
+  function finishVTracer(w, h) {
+    convRunning = false;
+    // Ensure namespace is declared so the downloaded file is valid standalone SVG
+    traceSvgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    outputSvg = new XMLSerializer().serializeToString(traceSvgEl);
+    showResult(outputSvg);
+    var kb = Math.round(outputSvg.length / 1024);
+    setStatus('Done — vector created (~' + kb + ' KB). Ready to download.');
+  }
+
+  // --- ImageTracer fallback path ---
+  function convertImageTracer() {
+    convRunning = true;
+    setStatus('Converting…', false, true);
+
+    var img = new Image();
+    img.onload = function () {
+      var w = img.naturalWidth, h = img.naturalHeight;
+      var scale = Math.min(1, MAX_IT / Math.max(w, h));
+      var cw = Math.max(1, Math.round(w * scale));
+      var ch = Math.max(1, Math.round(h * scale));
+
+      var canvas = document.createElement('canvas');
+      canvas.width = cw; canvas.height = ch;
+      canvas.getContext('2d').drawImage(img, 0, 0, cw, ch);
+
+      var imgd;
+      try { imgd = canvas.getContext('2d').getImageData(0, 0, cw, ch); }
+      catch (e) { convRunning = false; setStatus('Could not read image pixels.', true); return; }
+
+      var opts = IT_PRESETS[detailSel.value] || IT_PRESETS.medium;
+      setTimeout(function () {
+        try {
+          outputSvg = ImageTracer.imagedataToSVG(imgd, opts);
+          convRunning = false;
+          showResult(outputSvg);
+          setStatus('Done (~' + Math.round(outputSvg.length / 1024) + ' KB). Ready to download.');
+        } catch (e) { convRunning = false; setStatus('Conversion failed: ' + e.message, true); }
+      }, 30);
+    };
+    img.onerror = function () { convRunning = false; setStatus('Could not load that image.', true); };
+    img.src = currentDataUrl;
+  }
+
+  // --- Events ---
   fileInput.addEventListener('change', function (e) {
     if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
   });
-
   ['dragenter', 'dragover'].forEach(function (ev) {
     drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('vz-dragover'); });
   });
@@ -384,19 +489,9 @@
   drop.addEventListener('drop', function (e) {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
   });
-
-  convertBtn.addEventListener('click', function () {
-    if (!currentFile) return;
-    if (currentIsSvg) convertSvgPassThrough();
-    else convertRaster();
-  });
-
+  convertBtn.addEventListener('click', runConvert);
   downloadBtn.addEventListener('click', download);
   resetBtn.addEventListener('click', resetAll);
-
-  if (typeof ImageTracer === 'undefined') {
-    setStatus('Could not load the conversion library (check your internet connection).', true);
-  }
 })();
 </script>
 </body>
